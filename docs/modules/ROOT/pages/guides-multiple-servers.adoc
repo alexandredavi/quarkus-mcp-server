@@ -306,6 +306,13 @@ quarkus.mcp.server.admin.http.root-path=/admin/mcp
 quarkus.mcp.server.public.ws.root-path=/public/ws/mcp
 ----
 
+=== Server Names Unknown at Build Time
+
+With `quarkus.mcp.server.invalid-server-name-strategy=ignore`, features can be registered programmatically for a server name that is not configured at build time.
+Such a server has no configuration of its own, so the Streamable HTTP transport uses the HTTP configuration of the default server for it (`auto-init`, `lazy-sse-init`).
+For example, `quarkus.mcp.server.http.streamable.auto-init=true` lets any instance serve a request whose session was opened on another instance.
+Servers configured at build time keep their own configuration.
+
 == Security Configuration
 
 Each server can have different security policies.

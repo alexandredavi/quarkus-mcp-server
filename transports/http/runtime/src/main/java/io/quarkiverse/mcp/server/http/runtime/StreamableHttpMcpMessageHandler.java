@@ -13,6 +13,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -37,6 +38,7 @@ import io.quarkiverse.mcp.server.McpException;
 import io.quarkiverse.mcp.server.McpLog;
 import io.quarkiverse.mcp.server.McpMethod;
 import io.quarkiverse.mcp.server.McpProtocolVersion;
+import io.quarkiverse.mcp.server.McpServer;
 import io.quarkiverse.mcp.server.MetaKey;
 import io.quarkiverse.mcp.server.PromptManager.PromptInfo;
 import io.quarkiverse.mcp.server.ResourceManager;
@@ -110,6 +112,8 @@ public class StreamableHttpMcpMessageHandler extends McpMessageHandler<HttpMcpRe
     private final CurrentVertxRequest currentVertxRequest;
     private final CurrentIdentityAssociation currentIdentityAssociation;
     private final McpHttpServersRuntimeConfig httpConfig;
+    // server names known at build time; any other name uses the HTTP configuration of the default server
+    private final Set<String> knownServerNames;
     private final TrafficListeners trafficListeners;
     private final McpParamHeaderMetadata headerMetadata;
 
@@ -154,6 +158,7 @@ public class StreamableHttpMcpMessageHandler extends McpMessageHandler<HttpMcpRe
         this.currentVertxRequest = currentVertxRequest;
         this.currentIdentityAssociation = currentIdentityAssociation.isResolvable() ? currentIdentityAssociation.get() : null;
         this.httpConfig = runtimeConfig;
+        this.knownServerNames = metadata.serverNames();
         this.trafficListeners = trafficListeners;
         this.headerMetadata = headerMetadata;
         checkCorsConfig(config);
@@ -434,7 +439,7 @@ public class StreamableHttpMcpMessageHandler extends McpMessageHandler<HttpMcpRe
         } else {
             McpConnectionBase existing = connectionManager.get(mcpSessionId);
             if (existing == null) {
-                if (httpConfig.servers().get(serverName).http().streamable().autoInit()) {
+                if (httpServerConfig(serverName).http().streamable().autoInit()) {
                     connection = initConnection(serverName);
                 } else {
                     LOG.warnf("Mcp session not found: %s", mcpSessionId);
@@ -592,7 +597,7 @@ public class StreamableHttpMcpMessageHandler extends McpMessageHandler<HttpMcpRe
 
     @Override
     protected InitialRequest autoInitialRequest(HttpMcpRequest mcpRequest) {
-        McpHttpServerRuntimeConfig config = httpConfig.servers().get(mcpRequest.serverName());
+        McpHttpServerRuntimeConfig config = httpServerConfig(mcpRequest.serverName());
         if (config != null && config.http().streamable().autoInit()) {
             // "If the server does not receive an MCP-Protocol-Version header, the server SHOULD assume protocol version 2025-03-26"
             // Note that this is inconsistent with initial handshake where the latest supported version is used
@@ -756,10 +761,19 @@ public class StreamableHttpMcpMessageHandler extends McpMessageHandler<HttpMcpRe
             ELICITATION);
 
     private boolean computeLazySseInit(String serverName, JsonObject message) {
-        if (!httpConfig.servers().get(serverName).http().streamable().lazySseInit()) {
+        if (!httpServerConfig(serverName).http().streamable().lazySseInit()) {
             return false;
         }
         return Messages.isRequest(message) && isForceSseMethod(message);
+    }
+
+    /**
+     * A server name that is not known at build time (e.g. a server created at runtime with
+     * {@code quarkus.mcp.server.invalid-server-name-strategy=ignore}) has no configuration of its own, so it uses the
+     * HTTP configuration of the default server instead of the built-in defaults.
+     */
+    private McpHttpServerRuntimeConfig httpServerConfig(String serverName) {
+        return httpConfig.servers().get(knownServerNames.contains(serverName) ? serverName : McpServer.DEFAULT);
     }
 
     /**
